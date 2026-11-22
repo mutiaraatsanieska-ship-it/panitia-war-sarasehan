@@ -1,0 +1,23 @@
+PANITIA WAR — PAKET AWAL
+
+Isi:
+- index.html: aplikasi web peserta + dashboard admin.
+- firestore.rules: aturan keamanan database.
+
+PENTING SEBELUM DIPAKAI:
+1. Aktifkan Authentication > Google dan tambahkan domain hosting ke Authentication > Settings > Authorized domains.
+2. Di Firestore, buka Rules, ganti aturan dengan isi firestore.rules, lalu Publish.
+3. Login sekali menggunakan akun Google yang akan menjadi admin.
+4. Salin UID akun admin dari Authentication > Users.
+5. Di Firestore Data, buat koleksi admins, lalu dokumen dengan Document ID = UID admin tersebut. Tambahkan field:
+   role (string) = admin
+   email (string) = alamat email admin
+   Jangan izinkan peserta membuat dokumen admins.
+6. Pastikan koleksi bidang berisi dokumen: humas, acara, dekdok, perlengkapan, konsumsi, keamanan; field nama (string), kuota (int64), terisi (int64).
+
+CATATAN KEAMANAN:
+- API key Firebase pada konfigurasi web bukan password, tetapi sebaiknya batasi API key di Google Cloud Console ke domain website dan API yang diperlukan.
+- Jangan pernah membagikan password Google atau kredensial service account.
+- Uji dengan akun peserta percobaan sebelum membagikan link ke seluruh peserta.
+- Kode ini mengunci satu pilihan per UID dan memperbarui kuota memakai transaksi Firestore. Jangan membuka pendaftaran sebelum Rules dan dokumen admin disiapkan.
+- Dashboard admin membaca seluruh koleksi peserta hanya jika UID login memiliki dokumen admins/{UID}.
