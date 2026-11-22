@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Panitia War — Sarasehan</title>
+  <meta name="theme-color" content="#101827">
+  <style>
+    :root{--bg:#0b1220;--panel:#121d30;--panel2:#18263d;--text:#f4f7fb;--muted:#a9b6c9;--line:#293951;--accent:#8be0c1;--danger:#ff9a9a}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#0b1220,#15243a);color:var(--text);font:16px system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+    .wrap{max-width:980px;margin:auto;padding:22px 16px 56px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    h1{font-size:clamp(26px,5vw,42px);margin:8px 0}.sub{color:var(--muted);margin:0 0 22px}.panel{background:rgba(18,29,48,.96);border:1px solid var(--line);border-radius:20px;padding:18px;margin:16px 0;box-shadow:0 14px 35px #0003}
+    button{border:0;border-radius:12px;padding:12px 16px;font-weight:700;background:var(--accent);color:#102033;cursor:pointer;font-size:15px}button.secondary{background:#263852;color:var(--text);border:1px solid #3b506d}button:disabled{opacity:.45;cursor:not-allowed}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    .dept{background:var(--panel2);border:1px solid var(--line);padding:16px;border-radius:16px}.dept h3{margin:0 0 8px}.count{font-size:26px;font-weight:800}.muted{color:var(--muted)}.small{font-size:13px}.hidden{display:none!important}
+    input{width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0b1525;color:white;margin:6px 0 12px}
+    table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line)}.tablewrap{overflow:auto}
+    #message{padding:12px;border-radius:12px;background:#1b3045;color:#dff8ef;margin:12px 0;white-space:pre-wrap}.error{background:#3a2028!important;color:#ffdada!important}
+    .pill{display:inline-block;padding:5px 9px;border-radius:99px;background:#263852;color:#dce8f7;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div><div class="pill">SARASEHAN • PEMILIHAN BIDANG</div><h1>Panitia War</h1><p class="sub">Pilih satu bidang kepanitiaan. Kuota diperbarui secara langsung.</p></div><button id="loginBtn">Masuk dengan Google</button></div>
+  <div id="message" class="hidden" role="status"></div>
+  <section class="panel">
+    <div class="row"><div><h2 style="margin:0">Daftar bidang</h2><p class="muted small">Kuota terisi / kapasitas</p></div><span id="totalInfo" class="pill">Memuat data…</span></div>
+    <div id="departments" class="grid" style="margin-top:14px"></div>
+  </section>
+  <section id="accountPanel" class="panel hidden">
+    <div class="row"><div><h2 style="margin:0">Akun peserta</h2><div id="userInfo" class="muted small"></div></div><button id="logoutBtn" class="secondary">Keluar</button></div>
+    <div id="myChoice" style="margin-top:14px"></div>
+  </section>
+  <section id="adminPanel" class="panel hidden">
+    <div class="row"><div><h2 style="margin:0">Dashboard admin</h2><p class="muted small">Rekap pilihan peserta</p></div><button id="csvBtn" class="secondary">Unduh CSV</button></div>
+    <div class="tablewrap"><table><thead><tr><th>Nama</th><th>Email</th><th>Bidang</th><th>Waktu</th></tr></thead><tbody id="participants"></tbody></table></div>
+  </section>
+  <p class="muted small">Jika kuota bidang penuh, tombol pilihan akan dinonaktifkan. Hubungi panitia jika ada kesalahan data.</p>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+  // Konfigurasi Firebase project Panitia War
+  const firebaseConfig = {
+    apiKey: "AIzaSyBjI88zOnoaCaNB4QreV4U5b4zEPvjKXNo",
+    authDomain: "war-bidang-panitia-sarasehan.firebaseapp.com",
+    projectId: "war-bidang-panitia-sarasehan",
+    storageBucket: "war-bidang-panitia-sarasehan.firebasestorage.app",
+    messagingSenderId: "742022019959",
+    appId: "1:742022019959:web:50bfef3dddd82cd255ff72",
+    measurementId: "G-G9YDW4MMHT"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const $ = id => document.getElementById(id);
+  let currentUser = null, isAdmin = false, deptCache = [], participantCache = [];
+  const say = (msg, error=false) => { $('message').textContent=msg; $('message').classList.remove('hidden','error'); if(error)$('message').classList.add('error'); };
+  const hideMessage = () => $('message').classList.add('hidden');
+
+  $('loginBtn').onclick = async () => {
+    try { await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+    catch(e) { say("Login gagal: "+e.message,true); }
+  };
+  $('logoutBtn').onclick = () => auth.signOut();
+  $('csvBtn').onclick = () => {
+    if(!isAdmin) return;
+    const rows=[["Nama","Email","Bidang","Waktu"],...participantCache.map(p=>[p.nama||"",p.email||"",p.bidang||"",p.createdAt?.toDate?.().toLocaleString("id-ID")||""])];
+    const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(",")).join("\r\n");
+    const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="rekap-panitia-war.csv";a.click();URL.revokeObjectURL(a.href);
+  };
+
+  function renderDepartments(){
+    const total=deptCache.reduce((s,d)=>s+(Number(d.terisi)||0),0);
+    const cap=deptCache.reduce((s,d)=>s+(Number(d.kuota)||0),0);
+    $('totalInfo').textContent=`${total} / ${cap} kursi terisi`;
+    $('departments').innerHTML="";
+    deptCache.forEach(d=>{
+      const full=(Number(d.terisi)||0)>=(Number(d.kuota)||0);
+      const card=document.createElement("div");card.className="dept";
+      const h=document.createElement("h3");h.textContent=d.nama||d.id;
+      const count=document.createElement("div");count.className="count";count.textContent=`${d.terisi||0} / ${d.kuota||0}`;
+      const note=document.createElement("p");note.className="muted small";note.textContent=full?"Kuota penuh":`Sisa ${Math.max(0,(d.kuota||0)-(d.terisi||0))} kursi`;
+      const btn=document.createElement("button");btn.textContent=full?"Penuh":"Pilih bidang";btn.disabled=!currentUser||full||!!currentUser.choice;
+      btn.onclick=()=>chooseDepartment(d.id);
+      card.append(h,count,note,btn);$('departments').append(card);
+    });
+  }
+  async function chooseDepartment(deptId){
+    if(!currentUser) return say("Silakan login terlebih dahulu.",true);
+    if(currentUser.choice) return say("Akun ini sudah memilih bidang. Pilihan tidak dapat diubah dari halaman peserta.",true);
+    const ref=db.collection("bidang").doc(deptId), personRef=db.collection("peserta").doc(currentUser.uid);
+    try{
+      await db.runTransaction(async tx=>{
+        const [ds,ps]=await Promise.all([tx.get(ref),tx.get(personRef)]);
+        if(ps.exists) throw new Error("Akun ini sudah memiliki pilihan.");
+        if(!ds.exists) throw new Error("Bidang tidak ditemukan.");
+        const data=ds.data(),filled=Number(data.terisi)||0,quota=Number(data.kuota)||0;
+        if(filled>=quota) throw new Error("Maaf, kuota bidang ini baru saja penuh. Silakan pilih bidang lain.");
+        tx.update(ref,{terisi:filled+1});
+        tx.set(personRef,{uid:currentUser.uid,nama:currentUser.displayName||"",email:currentUser.email||"",bidang:deptId,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+      });
+      say("Berhasil! Pilihan bidangmu sudah tersimpan.");
+    }catch(e){say(e.message||"Gagal menyimpan pilihan.",true);}
+  }
+  async function loadMyChoice(){
+    if(!currentUser)return;
+    const snap=await db.collection("peserta").doc(currentUser.uid).get();
+    currentUser.choice=snap.exists?snap.data().bidang:null;
+    $('myChoice').textContent=currentUser.choice?`Pilihanmu: ${currentUser.choice.toUpperCase()}`:"Kamu belum memilih bidang.";
+    renderDepartments();
+  }
+  function subscribeDepartments(){
+    return db.collection("bidang").onSnapshot(snap=>{
+      deptCache=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.nama||"").localeCompare(b.nama||""));
+      renderDepartments();
+    },e=>say("Tidak dapat membaca data bidang: "+e.message,true));
+  }
+  async function checkAdmin(user){
+    const s=await db.collection("admins").doc(user.uid).get();
+    isAdmin=s.exists;
+    $('adminPanel').classList.toggle('hidden',!isAdmin);
+    if(isAdmin) subscribeParticipants();
+  }
+  function subscribeParticipants(){
+    db.collection("peserta").orderBy("createdAt","desc").onSnapshot(s=>{
+      participantCache=s.docs.map(d=>d.data());
+      $('participants').innerHTML="";
+      participantCache.forEach(p=>{
+        const tr=document.createElement("tr");
+        [p.nama,p.email,(p.bidang||"").toUpperCase(),p.createdAt?.toDate?.().toLocaleString("id-ID")||"—"].forEach(v=>{const td=document.createElement("td");td.textContent=v||"—";tr.append(td);});
+        $('participants').append(tr);
+      });
+    },e=>say("Gagal memuat rekap admin: "+e.message,true));
+  }
+  auth.onAuthStateChanged(async user=>{
+    currentUser=user;
+    $('loginBtn').classList.toggle('hidden',!!user);
+    $('accountPanel').classList.toggle('hidden',!user);
+    if(!user){isAdmin=false;$('adminPanel').classList.add('hidden');renderDepartments();return;}
+    $('userInfo').textContent=`${user.displayName||""} • ${user.email||""}`;
+    try{await loadMyChoice();await checkAdmin(user);}catch(e){say("Akun masuk, tetapi data belum dapat dibaca: "+e.message,true);}
+  });
+  subscribeDepartments();
+</script>
+</body>
+</html>
